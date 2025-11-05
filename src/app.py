@@ -85,12 +85,31 @@ def root():
 
 @app.get("/activities")
 def get_activities():
-    return activities
+    # Return a normalized copy of activities where each participant is an object
+    def normalize_participant(p):
+        if isinstance(p, str):
+            local = p.split("@")[0]
+            return {"email": p, "first_name": local, "last_name": ""}
+        # assume dict-like
+        return {
+            "email": p.get("email") if isinstance(p, dict) else str(p),
+            "first_name": (p.get("first_name") if isinstance(p, dict) else "") or "",
+            "last_name": (p.get("last_name") if isinstance(p, dict) else "") or "",
+        }
+
+    normalized = {}
+    for k, v in activities.items():
+        item = v.copy()
+        parts = item.get("participants", [])
+        item["participants"] = [normalize_participant(pp) for pp in parts]
+        normalized[k] = item
+
+    return normalized
 
 
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
-    """Sign up a student for an activity"""
+def signup_for_activity(activity_name: str, email: str, first_name: str = "", last_name: str = ""):
+    """Sign up a student for an activity (capture first and last name)"""
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
@@ -98,10 +117,60 @@ def signup_for_activity(activity_name: str, email: str):
     # Get the specific activity
     activity = activities[activity_name]
 
-# Validate student is not already signed up
-    if email in activity["participants"]:
+    # normalize and validate email domain
+    if not isinstance(email, str):
+        raise HTTPException(status_code=400, detail="Invalid email")
+
+    email = email.strip()
+    if "@" not in email or not email.lower().endswith("@mergington.com"):
+        raise HTTPException(status_code=400, detail="Email must be a Merginton account ending with @mergington.com")
+
+    # validate names (mandatory)
+    if not isinstance(first_name, str) or not first_name.strip():
+        raise HTTPException(status_code=400, detail="First name is required")
+    if not isinstance(last_name, str) or not last_name.strip():
+        raise HTTPException(status_code=400, detail="Last name is required")
+
+    # Prevent duplicate signups (case-insensitive); handle stored strings or objects
+    normalized = email.lower()
+    existing_emails = []
+    for p in activity.get("participants", []):
+        if isinstance(p, str):
+            existing_emails.append(p.lower())
+        elif isinstance(p, dict):
+            existing_emails.append((p.get("email") or "").lower())
+
+    if normalized in existing_emails:
         raise HTTPException(status_code=400, detail="Student already signed up for this activity")
 
-    # Add student
-    activity["participants"].append(email)
-    return {"message": f"Signed up {email} for {activity_name}"}
+    # Add student as an object with name
+    participant_obj = {"email": email, "first_name": first_name.strip(), "last_name": last_name.strip()}
+    activity.setdefault("participants", []).append(participant_obj)
+    return {"message": f"Signed up {first_name} {last_name} <{email}> for {activity_name}"}
+
+
+@app.delete("/activities/{activity_name}/participants")
+def unregister_from_activity(activity_name: str, email: str):
+    """Unregister a student (by email) from an activity"""
+    # Validate activity exists
+    if activity_name not in activities:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    activity = activities[activity_name]
+
+    # Find and remove participant by email (handle string or object entries)
+    target_index = None
+    for idx, p in enumerate(activity.get("participants", [])):
+        if isinstance(p, str) and p.lower() == email.lower():
+            target_index = idx
+            break
+        if isinstance(p, dict) and (p.get("email") or "").lower() == email.lower():
+            target_index = idx
+            break
+
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="Student not registered for this activity")
+
+    removed = activity["participants"].pop(target_index)
+    removed_email = removed if isinstance(removed, str) else removed.get("email")
+    return {"message": f"Unregistered {removed_email} from {activity_name}"}

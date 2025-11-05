@@ -47,16 +47,73 @@ document.addEventListener("DOMContentLoaded", () => {
             const li = document.createElement("li");
             li.className = "participant-item";
 
-            // small badge showing local part (before @) then full email
+            // support participant as object {email, first_name, last_name} or legacy string
+            let email = "";
+            let firstName = "";
+            let lastName = "";
+            if (typeof p === "string") {
+              email = p;
+              firstName = p.split("@")[0];
+            } else if (typeof p === "object" && p !== null) {
+              email = p.email || "";
+              firstName = p.first_name || p.firstName || "";
+              lastName = p.last_name || p.lastName || "";
+            }
+
+            // small badge showing first name (or local part) then full name + email
             const badge = document.createElement("span");
             badge.className = "participant-badge";
-            badge.textContent = p.split("@")[0];
+            badge.textContent = firstName || email.split("@")[0];
 
             const text = document.createElement("span");
-            text.textContent = p;
+            text.textContent = `${firstName} ${lastName}`.trim() + (firstName || lastName ? ` — ${email}` : email);
+
+            // remove button
+            const removeBtn = document.createElement("button");
+            removeBtn.className = "participant-remove-btn";
+            removeBtn.title = "Unregister participant";
+            removeBtn.type = "button";
+            removeBtn.innerHTML = "✖";
+
+            // store data for handler
+            removeBtn.dataset.activity = name;
+            removeBtn.dataset.email = email;
+
+            // click handler to unregister
+            removeBtn.addEventListener("click", async (evt) => {
+              // optimistic UI: disable button while processing
+              removeBtn.disabled = true;
+              try {
+                const activityName = encodeURIComponent(removeBtn.dataset.activity);
+                const emailParam = encodeURIComponent(removeBtn.dataset.email);
+                const resp = await fetch(`/activities/${activityName}/participants?email=${emailParam}`, {
+                  method: "DELETE",
+                });
+
+                const result = await resp.json();
+                if (resp.ok) {
+                  // reload activities to update availability and participants
+                  fetchActivities();
+                } else {
+                  messageDiv.textContent = result.detail || result.message || "Failed to unregister";
+                  messageDiv.className = "error";
+                  messageDiv.classList.remove("hidden");
+                  setTimeout(() => messageDiv.classList.add("hidden"), 5000);
+                  removeBtn.disabled = false;
+                }
+              } catch (error) {
+                console.error("Error unregistering:", error);
+                messageDiv.textContent = "Failed to unregister. Please try again.";
+                messageDiv.className = "error";
+                messageDiv.classList.remove("hidden");
+                setTimeout(() => messageDiv.classList.add("hidden"), 5000);
+                removeBtn.disabled = false;
+              }
+            });
 
             li.appendChild(badge);
             li.appendChild(text);
+            li.appendChild(removeBtn);
             participantsUl.appendChild(li);
           });
         } else {
@@ -87,12 +144,40 @@ document.addEventListener("DOMContentLoaded", () => {
   signupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
+    const firstName = document.getElementById("first-name").value.trim();
+    const lastName = document.getElementById("last-name").value.trim();
     const email = document.getElementById("email").value;
     const activity = document.getElementById("activity").value;
 
+    // Client-side validation: require names and @mergington.com domain
+    if (!firstName) {
+      messageDiv.textContent = "First name is required";
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+      setTimeout(() => messageDiv.classList.add("hidden"), 3000);
+      return;
+    }
+    if (!lastName) {
+      messageDiv.textContent = "Last name is required";
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+      setTimeout(() => messageDiv.classList.add("hidden"), 3000);
+      return;
+    }
+
+    if (!email || !email.toLowerCase().trim().endsWith("@mergington.com")) {
+      messageDiv.textContent = "Email must end with @mergington.com";
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+      setTimeout(() => {
+        messageDiv.classList.add("hidden");
+      }, 4000);
+      return;
+    }
+
     try {
       const response = await fetch(
-        `/activities/${encodeURIComponent(activity)}/signup?email=${encodeURIComponent(email)}`,
+        `/activities/${encodeURIComponent(activity)}/signup?email=${encodeURIComponent(email)}&first_name=${encodeURIComponent(firstName)}&last_name=${encodeURIComponent(lastName)}`,
         {
           method: "POST",
         }
@@ -104,6 +189,8 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
         signupForm.reset();
+        // refresh activities so the new participant appears immediately
+        fetchActivities();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";

@@ -88,8 +88,8 @@ section h3 {
 }
 
 .participants-list {
-  list-style-type: disc;
-  padding-left: 20px;
+  list-style-type: none; /* hide bullets */
+  padding-left: 0;
   margin: 0;
   max-height: 120px;
   overflow-y: auto;
@@ -101,6 +101,27 @@ section h3 {
   padding: 4px 0;
   display: flex;
   align-items: center;
+}
+
+/* remove/unregister button */
+.participant-remove-btn {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: #c62828;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.participant-remove-btn:hover {
+  background-color: rgba(198, 40, 40, 0.08);
+}
+
+.participant-remove-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* small badge for participant (email local part) */
